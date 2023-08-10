@@ -5,7 +5,7 @@ import (
 	"math/rand"
 	"time"
 
-	"github.com/habibbushira/ggpocker/deck"
+	"github.com/habibbushira/ggpoker/deck"
 )
 
 func main() {
@@ -15,4 +15,5 @@ func main() {
 		fmt.Println(d)
 		fmt.Println()
 	}
+
 }

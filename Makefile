@@ -1,8 +1,8 @@
 build:
-	go build -o bin/ggpocker
+	go build -o bin/ggpoker
 
 run: build
-	@./bin/ggpocker
+	@./bin/ggpoker
 
 test:
 	go test -v ./...

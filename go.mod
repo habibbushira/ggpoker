@@ -1,3 +1,3 @@
-module github.com/habibbushira/ggpocker
+module github.com/habibbushira/ggpoker
 
 go 1.20

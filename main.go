@@ -1,7 +1,7 @@
 package main
 
 import (
-	server "github.com/habibbushira/ggpoker/p2p"
+	"github.com/habibbushira/ggpoker/p2p"
 )
 
 func main() {
@@ -12,10 +12,10 @@ func main() {
 	// 	fmt.Println()
 	// }
 
-	cfg := server.ServerConfig{
+	cfg := p2p.ServerConfig{
 		ListenAddr: ":3000",
 	}
-	server := server.NewServer(cfg)
+	server := p2p.NewServer(cfg)
 
 	server.Start()
 

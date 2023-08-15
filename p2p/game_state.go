@@ -5,41 +5,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-
-	"github.com/habibbushira/ggpoker/deck"
-)
-
-type GameStatus int32
-
-func (g GameStatus) String() string {
-	switch g {
-	case GameStatusWaiting:
-		return "WAITING"
-	case GameStatusReceiving:
-		return "RECEIVING"
-	case GameStatusDealing:
-		return "DEALING"
-	case GameStatusPreFlop:
-		return "PRE FLOP"
-	case GameStatusFlop:
-		return "FLOP"
-	case GameStatusTurn:
-		return "TURN"
-	case GameStatusRiver:
-		return "RIVER"
-	default:
-		return "unknown"
-	}
-}
-
-const (
-	GameStatusWaiting GameStatus = iota
-	GameStatusReceiving
-	GameStatusDealing
-	GameStatusPreFlop
-	GameStatusFlop
-	GameStatusTurn
-	GameStatusRiver
 )
 
 type Player struct {
@@ -48,22 +13,26 @@ type Player struct {
 
 type GameState struct {
 	listenAddr  string
-	broadcastch chan any
+	broadcastch chan BroadcastTo
 	isDealer    bool       // atomic accessable
 	gameStatus  GameStatus // atomic accessable
 
 	playersWaiting int32
 	playersLock    sync.RWMutex
 	players        map[string]*Player
+
+	decksRecievedLock sync.RWMutex
+	decksRecieved     map[string]bool
 }
 
-func NewGameState(addr string, broadcastch chan any) *GameState {
+func NewGameState(addr string, broadcastch chan BroadcastTo) *GameState {
 	g := &GameState{
-		listenAddr:  addr,
-		broadcastch: broadcastch,
-		isDealer:    false,
-		gameStatus:  GameStatusWaiting,
-		players:     make(map[string]*Player),
+		listenAddr:    addr,
+		broadcastch:   broadcastch,
+		isDealer:      false,
+		gameStatus:    GameStatusWaiting,
+		players:       make(map[string]*Player),
+		decksRecieved: make(map[string]bool),
 	}
 
 	go g.loop()
@@ -72,9 +41,9 @@ func NewGameState(addr string, broadcastch chan any) *GameState {
 
 // TODO: (@habib) Check other read and write occurences of the GameStatus
 func (g *GameState) SetStatus(s GameStatus) {
-	oldStatus := atomic.LoadInt32((*int32)(&g.gameStatus))
-	atomic.StoreInt32((*int32)(&oldStatus), (int32)(s))
-	g.gameStatus = s
+	if g.gameStatus != s {
+		atomic.StoreInt32((*int32)(&g.gameStatus), (int32)(s))
+	}
 }
 
 func (g *GameState) AddPlayerWaiting() {
@@ -89,12 +58,71 @@ func (g *GameState) CheckNeedDealCards() {
 		g.gameStatus == GameStatusWaiting {
 		fmt.Printf("need to deal cards %s", g.listenAddr)
 
-		g.DealCards()
+		g.InitiateShuffleAndDeal()
 	}
 }
 
+func (g *GameState) GetPlayersWithStatus(s GameStatus) []string {
+	players := []string{}
+	for addr, _ := range g.players {
+		players = append(players, addr)
+	}
+
+	return players
+
+}
+
+func (g *GameState) SetDeckRecievedToPlayer(from string) {
+	g.decksRecievedLock.Lock()
+	g.decksRecieved[from] = true
+	g.decksRecievedLock.Unlock()
+}
+
+func (g *GameState) ShuffleAndEncrypt(from string, deck [][]byte) error {
+	//encyrption and shuffle
+
+	g.SetDeckRecievedToPlayer(from)
+	g.SendToPlayersWithStatus(MessageEncDeck{Deck: [][]byte{}}, GameStatusReceiving)
+
+	players := g.GetPlayersWithStatus(GameStatusReceiving)
+
+	g.decksRecievedLock.RLock()
+	for _, addr := range players {
+		if _, ok := g.decksRecieved[addr]; !ok {
+			return nil
+		}
+	}
+	g.decksRecievedLock.RUnlock()
+
+	// in this case we recieve all the shuffleed card fro all players
+
+	g.SetStatus(GameStatusPreFlop)
+
+	return nil
+}
+
+// InitiateShuffleAndDeal is only used for the "real" dealer. The actual "button player"
+func (g *GameState) InitiateShuffleAndDeal() {
+	g.SetStatus(GameStatusReceiving)
+	//TODO: shuffle and deal
+
+	// g.broadcastch <- MessageEncDeck{Deck: [][]byte{}}
+	g.SendToPlayersWithStatus(MessageEncDeck{Deck: [][]byte{}}, GameStatusWaiting)
+}
+
+func (g *GameState) SendToPlayersWithStatus(payload any, s GameStatus) {
+	players := g.GetPlayersWithStatus(s)
+
+	g.broadcastch <- BroadcastTo{
+		To:      players,
+		Payload: payload,
+	}
+
+	fmt.Printf("sendign to players payload: %v, players: %v", payload, players)
+}
+
 func (g *GameState) DealCards() {
-	g.broadcastch <- MessageCards{Deck: deck.New()}
+	// g.broadcastch <- MessageEncDeck{Deck: deck.New()}
 }
 
 func (g *GameState) SetPlayerStatus(addr string, status GameStatus) {
@@ -139,7 +167,7 @@ func (g *GameState) loop() {
 	for {
 		select {
 		case <-ticker.C:
-			fmt.Printf("players connected: %d, status: %s\n", g.lenPlayersConnectedWithLock(), g.gameStatus)
+			fmt.Printf("players connected: we: %s, %d, status: %s\n", g.listenAddr, g.lenPlayersConnectedWithLock(), g.gameStatus)
 		}
 	}
 }

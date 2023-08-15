@@ -38,22 +38,22 @@ type Server struct {
 	transport   *TCPTransport
 	peerLock    sync.RWMutex
 	mu          sync.RWMutex
-	peers       map[net.Addr]*Peer
+	peers       map[string]*Peer
 	addPeer     chan *Peer
 	delPeer     chan *Peer
 	msgCh       chan *Message
-	broadcastch chan any
+	broadcastch chan BroadcastTo
 	gameState   *GameState
 }
 
 func NewServer(cfg ServerConfig) *Server {
 	s := &Server{
 		ServerConfig: cfg,
-		peers:        make(map[net.Addr]*Peer),
+		peers:        make(map[string]*Peer),
 		addPeer:      make(chan *Peer, 10),
 		delPeer:      make(chan *Peer),
-		msgCh:        make(chan *Message),
-		broadcastch:  make(chan any),
+		msgCh:        make(chan *Message, 100),
+		broadcastch:  make(chan BroadcastTo, 100),
 	}
 
 	s.gameState = NewGameState(s.ListenAddr, s.broadcastch)
@@ -76,13 +76,6 @@ func (s *Server) Start() {
 
 	fmt.Printf("started new game: port %s variant %v\n", s.ListenAddr, s.GameVariant)
 
-	go func() {
-		msg := <-s.broadcastch
-		fmt.Println("broadcasting to all peers")
-		if err := s.Broadcast(msg); err != nil {
-			fmt.Println("broadcast error ", err)
-		}
-	}()
 	s.transport.ListenAndAccept()
 
 }
@@ -122,7 +115,7 @@ func (s *Server) AddPeer(p *Peer) {
 	s.peerLock.Lock()
 	defer s.peerLock.Unlock()
 
-	s.peers[p.conn.RemoteAddr()] = p
+	s.peers[p.listenAddr] = p
 }
 
 func (s *Server) Peers() []string {
@@ -196,12 +189,18 @@ func (s *Server) loop() {
 			}
 		case peer := <-s.delPeer:
 			peer.conn.Close()
-			delete(s.peers, peer.conn.RemoteAddr())
+			delete(s.peers, peer.conn.RemoteAddr().String())
 			fmt.Printf("player disconnected %s\n", peer.conn.RemoteAddr())
 
 		case msg := <-s.msgCh:
 			if err := s.handleMessage(msg); err != nil {
 				fmt.Println("handle msg error ", err)
+			}
+
+		case msg := <-s.broadcastch:
+			fmt.Println("broadcasting to all peers")
+			if err := s.Broadcast(msg); err != nil {
+				fmt.Println("broadcast error ", err)
 			}
 		}
 	}
@@ -211,7 +210,7 @@ func (s *Server) handleNewPeer(peer *Peer) error {
 	hs, err := s.handshake(peer)
 	if err != nil {
 		peer.conn.Close()
-		delete(s.peers, peer.conn.RemoteAddr())
+		delete(s.peers, peer.conn.RemoteAddr().String())
 		return fmt.Errorf("handshake with incoming player failed: %s\n", err)
 	}
 
@@ -221,7 +220,7 @@ func (s *Server) handleNewPeer(peer *Peer) error {
 	if !peer.outbound {
 		if err := s.SendHandshake(peer); err != nil {
 			peer.conn.Close()
-			delete(s.peers, peer.conn.RemoteAddr())
+			delete(s.peers, peer.conn.RemoteAddr().String())
 			return fmt.Errorf("failed to send handshake with peer: %s", err)
 		}
 
@@ -243,23 +242,37 @@ func (s *Server) handleNewPeer(peer *Peer) error {
 	return nil
 }
 
-func (s *Server) Broadcast(payload any) error {
-	msg := NewMessage(s.ListenAddr, payload)
+func (s *Server) Broadcast(broadcastMsg BroadcastTo) error {
+	msg := NewMessage(s.ListenAddr, broadcastMsg.Payload)
 
 	buf := new(bytes.Buffer)
 	if err := gob.NewEncoder(buf).Encode(msg); err != nil {
 		return err
 	}
 
-	for _, peer := range s.peers {
-		go func(peer *Peer) {
-			if err := peer.Send(buf.Bytes()); err != nil {
-				fmt.Println("broadcast to peer error: ", err)
-			}
+	fmt.Printf("%+v\n", broadcastMsg)
 
-			fmt.Printf("broadcast we: %s, peer: %s", s.ListenAddr, peer.listenAddr)
-		}(peer)
+	for _, addr := range broadcastMsg.To {
+		peer, ok := s.peers[addr]
+		if ok {
+			go func(peer *Peer) {
+				if err := peer.Send(buf.Bytes()); err != nil {
+					fmt.Println("broadcast to peer error: ", err)
+				}
+				fmt.Printf("sending msg to peer we: %s, peer: %s\n", s.ListenAddr, peer.listenAddr)
+			}(peer)
+		}
 	}
+
+	// for _, peer := range s.peers {
+	// 	go func(peer *Peer) {
+	// 		if err := peer.Send(buf.Bytes()); err != nil {
+	// 			fmt.Println("broadcast to peer error: ", err)
+	// 		}
+
+	// 		fmt.Printf("broadcast we: %s, peer: %s\n", s.ListenAddr, peer.listenAddr)
+	// 	}(peer)
+	// }
 
 	return nil
 }
@@ -286,8 +299,10 @@ func (s *Server) handleMessage(msg *Message) error {
 	switch v := msg.Payload.(type) {
 	case MessagePeerList:
 		return s.handlePeerList(v)
-	case MessageCards:
-		fmt.Printf("%s: recieved msg from (%s) -> %+v\n", s.ListenAddr, msg.From, v)
+	case MessageEncDeck:
+		s.gameState.SetStatus(GameStatusReceiving)
+		s.gameState.ShuffleAndEncrypt(msg.From, v.Deck)
+		fmt.Printf("recieved enc deck from: %s, we: %s\n", msg.From, s.ListenAddr)
 	}
 	return nil
 }
@@ -307,5 +322,5 @@ func (s *Server) handlePeerList(l MessagePeerList) error {
 
 func init() {
 	gob.Register(MessagePeerList{})
-	gob.Register(MessageCards{})
+	gob.Register(MessageEncDeck{})
 }

@@ -6,6 +6,8 @@ func (g GameStatus) String() string {
 	switch g {
 	case GameStatusWaiting:
 		return "WAITING"
+	case GameStatusShuffleAndDeal:
+		return "SHUFFLE AND DEAL"
 	case GameStatusReceiving:
 		return "RECEIVING"
 	case GameStatusDealing:
@@ -25,6 +27,7 @@ func (g GameStatus) String() string {
 
 const (
 	GameStatusWaiting GameStatus = iota
+	GameStatusShuffleAndDeal
 	GameStatusReceiving
 	GameStatusDealing
 	GameStatusPreFlop

@@ -193,10 +193,11 @@ func (s *Server) loop() {
 			fmt.Printf("player disconnected %s\n", peer.conn.RemoteAddr())
 
 		case msg := <-s.msgCh:
-			if err := s.handleMessage(msg); err != nil {
-				fmt.Println("handle msg error ", err)
-			}
-
+			go func() {
+				if err := s.handleMessage(msg); err != nil {
+					fmt.Println("handle msg error ", err)
+				}
+			}()
 		case msg := <-s.broadcastch:
 			fmt.Println("broadcasting to all peers")
 			if err := s.Broadcast(msg); err != nil {
@@ -300,10 +301,14 @@ func (s *Server) handleMessage(msg *Message) error {
 	case MessagePeerList:
 		return s.handlePeerList(v)
 	case MessageEncDeck:
-		s.gameState.SetStatus(GameStatusReceiving)
-		s.gameState.ShuffleAndEncrypt(msg.From, v.Deck)
-		fmt.Printf("recieved enc deck from: %s, we: %s\n", msg.From, s.ListenAddr)
+		return s.handleEncDeck(msg.From, v)
 	}
+	return nil
+}
+
+func (s *Server) handleEncDeck(from string, msg MessageEncDeck) error {
+	s.gameState.ShuffleAndEncrypt(from, msg.Deck)
+	fmt.Printf("we %s, recieved enc deck from: %s, we: %s\n", s.ListenAddr, from, s.ListenAddr)
 	return nil
 }
 

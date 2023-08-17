@@ -27,9 +27,10 @@ const (
 )
 
 type ServerConfig struct {
-	ListenAddr  string
-	Version     string
-	GameVariant GameVariant
+	ListenAddr    string
+	Version       string
+	GameVariant   GameVariant
+	ApiListenAddr string
 }
 
 type Server struct {
@@ -43,7 +44,8 @@ type Server struct {
 	delPeer     chan *Peer
 	msgCh       chan *Message
 	broadcastch chan BroadcastTo
-	gameState   *GameState
+	// gameState   *GameState
+	gameState *Game
 }
 
 func NewServer(cfg ServerConfig) *Server {
@@ -56,17 +58,24 @@ func NewServer(cfg ServerConfig) *Server {
 		broadcastch:  make(chan BroadcastTo, 100),
 	}
 
-	s.gameState = NewGameState(s.ListenAddr, s.broadcastch)
+	// s.gameState = NewGameState(s.ListenAddr, s.broadcastch)
+	s.gameState = NewGame(s.ListenAddr, s.broadcastch)
 
-	if s.ListenAddr == ":3000" {
-		s.gameState.isDealer = true
-	}
+	// if s.ListenAddr == ":3000" {
+	// 	s.gameState.isDealer = true
+	// }
 
 	tr := NewTCPTransport(s.ListenAddr)
 	s.transport = tr
 
 	tr.AddPeer = s.addPeer
 	tr.DelPeer = s.delPeer
+
+	go func() {
+		apiServer := NewAPIServer(cfg.ApiListenAddr, s.gameState)
+		fmt.Printf("starting api server port %s\n", cfg.ApiListenAddr)
+		apiServer.Run()
+	}()
 
 	return s
 }
@@ -92,10 +101,6 @@ func (s *Server) sendPeerList(p *Peer) error {
 			peerList.Peers = append(peerList.Peers, peers[i])
 		}
 	}
-
-	// for _, peer := range s.peers {
-	// 	peerList.Peers = append(peerList.Peers, peer.listenAddr)
-	// }
 
 	if len(peerList.Peers) == 0 {
 		return nil
@@ -137,8 +142,8 @@ func (s *Server) SendHandshake(p *Peer) error {
 	hs := &Handshake{
 		GameVariant: s.GameVariant,
 		Version:     s.Version,
-		GameStatus:  s.gameState.gameStatus,
-		ListenAddr:  s.ListenAddr,
+		// GameStatus:  s.gameState.gameStatus,
+		ListenAddr: s.ListenAddr,
 	}
 
 	buf := new(bytes.Buffer)
@@ -232,13 +237,13 @@ func (s *Server) handleNewPeer(peer *Peer) error {
 		}()
 	}
 
-	fmt.Printf("handshake successful: new player connected peer: %s, gamestatus: %s, listenAddr: %s we: %s\n", peer.conn.RemoteAddr(), hs.GameStatus, peer.listenAddr, s.ListenAddr)
+	fmt.Printf("handshake successful: new player connected gamestatus: %s, listenAddr: %s we: %s\n", hs.GameStatus, peer.listenAddr, s.ListenAddr)
 
 	// s.peers[peer.conn.RemoteAddr()] = peer
 
 	s.AddPeer(peer)
 
-	s.gameState.AddPlayer(peer.listenAddr, hs.GameStatus)
+	s.gameState.AddPlayer(peer.listenAddr)
 
 	return nil
 }
@@ -295,7 +300,7 @@ func (s *Server) handleMessage(msg *Message) error {
 }
 
 func (s *Server) handleEncDeck(from string, msg MessageEncDeck) error {
-	s.gameState.ShuffleAndEncrypt(from, msg.Deck)
+	// s.gameState.ShuffleAndEncrypt(from, msg.Deck)
 	fmt.Printf("we %s, recieved enc deck from: %s, we: %s\n", s.ListenAddr, from, s.ListenAddr)
 	return nil
 }
@@ -316,4 +321,5 @@ func (s *Server) handlePeerList(l MessagePeerList) error {
 func init() {
 	gob.Register(MessagePeerList{})
 	gob.Register(MessageEncDeck{})
+	gob.Register(MessageReady{})
 }

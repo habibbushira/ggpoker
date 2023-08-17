@@ -251,8 +251,6 @@ func (s *Server) Broadcast(broadcastMsg BroadcastTo) error {
 		return err
 	}
 
-	fmt.Printf("%+v\n", broadcastMsg)
-
 	for _, addr := range broadcastMsg.To {
 		peer, ok := s.peers[addr]
 		if ok {
@@ -264,16 +262,6 @@ func (s *Server) Broadcast(broadcastMsg BroadcastTo) error {
 			}(peer)
 		}
 	}
-
-	// for _, peer := range s.peers {
-	// 	go func(peer *Peer) {
-	// 		if err := peer.Send(buf.Bytes()); err != nil {
-	// 			fmt.Println("broadcast to peer error: ", err)
-	// 		}
-
-	// 		fmt.Printf("broadcast we: %s, peer: %s\n", s.ListenAddr, peer.listenAddr)
-	// 	}(peer)
-	// }
 
 	return nil
 }

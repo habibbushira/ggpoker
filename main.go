@@ -7,11 +7,12 @@ import (
 	"github.com/habibbushira/ggpoker/p2p"
 )
 
-func makeServer(addr string) *p2p.Server {
+func makeServer(addr, apiAddr string) *p2p.Server {
 	cfg := p2p.ServerConfig{
-		ListenAddr:  addr,
-		Version:     "GGPOKER V0.1-alpha",
-		GameVariant: p2p.TexasHoldem,
+		ListenAddr:    addr,
+		Version:       "GGPOKER V0.1-alpha",
+		GameVariant:   p2p.TexasHoldem,
+		ApiListenAddr: apiAddr,
 	}
 	server := p2p.NewServer(cfg)
 	go server.Start()
@@ -22,12 +23,12 @@ func makeServer(addr string) *p2p.Server {
 }
 
 func main() {
-	playerA := makeServer(":3000")
-	playerB := makeServer(":4000")
-	playerC := makeServer(":5000")
-	playerD := makeServer(":6000")
-	playerE := makeServer(":7000")
-	playerF := makeServer(":8000")
+	playerA := makeServer(":3000", ":3001")
+	playerB := makeServer(":4000", ":4001")
+	playerC := makeServer(":5000", ":5001")
+	// playerD := makeServer(":6000")
+	// playerE := makeServer(":7000")
+	// playerF := makeServer(":8000")
 
 	fmt.Println()
 
@@ -37,14 +38,14 @@ func main() {
 	playerC.Connect(playerB.ListenAddr)
 	time.Sleep(200 * time.Millisecond)
 
-	playerD.Connect(playerC.ListenAddr)
-	time.Sleep(200 * time.Millisecond)
+	// playerD.Connect(playerC.ListenAddr)
+	// time.Sleep(200 * time.Millisecond)
 
-	playerE.Connect(playerD.ListenAddr)
-	time.Sleep(200 * time.Millisecond)
+	// playerE.Connect(playerD.ListenAddr)
+	// time.Sleep(200 * time.Millisecond)
 
-	playerF.Connect(playerE.ListenAddr)
-	time.Sleep(200 * time.Millisecond)
+	// playerF.Connect(playerE.ListenAddr)
+	// time.Sleep(200 * time.Millisecond)
 
 	select {}
 

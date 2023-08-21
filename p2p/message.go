@@ -24,6 +24,16 @@ type Handshake struct {
 	ListenAddr  string
 }
 
+type MessagePlayerAction struct {
+	// CurrentGameStatus is the current status of the sending player his game.
+	// this needs to be the exact same as ours
+	CurrentGameStatus GameStatus
+	// Action is the action that the player is willing to take
+	Action PlayerAction
+	// the value of the bet if any
+	Value int
+}
+
 type MessagePreFlop struct{}
 
 func (msg MessagePreFlop) String() string {

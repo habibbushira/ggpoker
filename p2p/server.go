@@ -299,6 +299,8 @@ func (s *Server) handleMessage(msg *Message) error {
 		return s.handleMsgReady(msg.From)
 	case MessagePreFlop:
 		return s.handleMsgPreFlop(msg.From)
+	case MessagePlayerAction:
+		return s.handleGetMsgPlayerAction(msg.From, v)
 	}
 	return nil
 }
@@ -310,6 +312,11 @@ func (s *Server) handleMsgReady(from string) error {
 
 func (s *Server) handleMsgPreFlop(from string) error {
 	s.gameState.setStatus(GameStatusPreFlop)
+	return nil
+}
+
+func (s *Server) handleGetMsgPlayerAction(from string, msg MessagePlayerAction) error {
+	fmt.Printf("recieved player action: we %s, from %s, action %v\n", from, from, msg)
 	return nil
 }
 
@@ -337,4 +344,5 @@ func init() {
 	gob.Register(MessageEncDeck{})
 	gob.Register(MessageReady{})
 	gob.Register(MessagePreFlop{})
+	gob.Register(MessagePlayerAction{})
 }

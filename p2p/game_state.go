@@ -9,6 +9,14 @@ import (
 	"time"
 )
 
+type PlayerAction byte
+
+const (
+	PlayerActionFold PlayerAction = iota + 1
+	PlayerActionCheck
+	PlayerActionBet
+)
+
 type PlayersReady struct {
 	mu         sync.RWMutex
 	recvStatus map[string]bool
@@ -27,13 +35,13 @@ func (pr *PlayersReady) addRecvStatus(from string) {
 	pr.recvStatus[from] = true
 }
 
-func (pr *PlayersReady) haveRecv(from string) bool {
-	pr.mu.Lock()
-	defer pr.mu.Unlock()
+// func (pr *PlayersReady) haveRecv(from string) bool {
+// 	pr.mu.Lock()
+// 	defer pr.mu.Unlock()
 
-	_, ok := pr.recvStatus[from]
-	return ok
-}
+// 	_, ok := pr.recvStatus[from]
+// 	return ok
+// }
 
 func (pr *PlayersReady) len() int {
 	pr.mu.RLock()
@@ -60,6 +68,8 @@ type Game struct {
 	currentStatus GameStatus
 	// NOTE: this will be -1 when the game is in a bootstrapped state
 	currentDealer int32
+	// currentPlayerTurn should be atomically accessable
+	currentPlayerTurn int32
 }
 
 func NewGame(addr string, bc chan BroadcastTo) *Game {
@@ -78,6 +88,15 @@ func NewGame(addr string, bc chan BroadcastTo) *Game {
 	return g
 }
 
+func (g *Game) Fold() {
+	g.setStatus(GameStatusFolded)
+
+	g.sendToPlayers(MessagePlayerAction{
+		Action:            PlayerActionFold,
+		CurrentGameStatus: g.currentStatus,
+	}, g.getOtherPlayers()...)
+}
+
 func (g *Game) ShuffleAndEncrypt(from string, deck [][]byte) error {
 
 	prevPlayer := g.playersList[g.getPrevPositionOnTable()]
@@ -94,8 +113,8 @@ func (g *Game) ShuffleAndEncrypt(from string, deck [][]byte) error {
 		return nil
 	}
 
-	// dealToPlayer := g.playersList[g.getNextPositionOnTable()]
-	dealToPlayer := g.getNextReadyPlayer(g.getNextPositionOnTable())
+	dealToPlayer := g.playersList[g.getNextPositionOnTable()]
+	// dealToPlayer := g.getNextReadyPlayer(g.getNextPositionOnTable())
 	//encyrption and shuffle
 
 	g.setStatus(GameStatusDealing)
@@ -165,7 +184,7 @@ func (g *Game) sendToPlayers(payload any, addr ...string) {
 		Payload: payload,
 	}
 
-	fmt.Printf("sendign to players payload: %v, players: %v, we %s\n", payload, addr, g.listenAddr)
+	fmt.Printf("sending to players payload: %v, players: %v, we %s\n", payload, addr, g.listenAddr)
 }
 
 func (g *Game) AddPlayer(from string) {
@@ -234,177 +253,17 @@ func (g *Game) getOtherPlayers() []string {
 	return players
 }
 
-func (g *Game) getNextReadyPlayer(nextPos int) string {
-	if nextPos >= len(g.playersList) {
-		return ""
-	}
-	nextPlayer := g.playersList[nextPos]
+// func (g *Game) getNextReadyPlayer(nextPos int) string {
+// 	if nextPos >= len(g.playersList) {
+// 		return ""
+// 	}
+// 	nextPlayer := g.playersList[nextPos]
 
-	if g.playersReady.haveRecv(nextPlayer) {
-		return nextPlayer
-	}
-
-	return g.getNextReadyPlayer(nextPos + 1)
-}
-
-// type GameState struct {
-// 	listenAddr  string
-// 	broadcastch chan BroadcastTo
-// 	isDealer    bool       // atomic accessable
-// 	gameStatus  GameStatus // atomic accessable
-
-// 	playersLock sync.RWMutex
-// 	players     map[string]*Player
-// 	playersList PlayersList
-// }
-
-// func NewGameState(addr string, broadcastch chan BroadcastTo) *GameState {
-// 	g := &GameState{
-// 		listenAddr:  addr,
-// 		broadcastch: broadcastch,
-// 		isDealer:    false,
-// 		gameStatus:  GameStatusWaiting,
-// 		players:     make(map[string]*Player),
+// 	if g.playersReady.haveRecv(nextPlayer) {
+// 		return nextPlayer
 // 	}
 
-// 	g.AddPlayer(addr, GameStatusWaiting)
-
-// 	go g.loop()
-// 	return g
-// }
-
-// // TODO: (@habib) Check other read and write occurences of the GameStatus
-// func (g *GameState) SetStatus(s GameStatus) {
-// 	if g.gameStatus != s {
-// 		atomic.StoreInt32((*int32)(&g.gameStatus), (int32)(s))
-// 		g.SetPlayerStatus(g.listenAddr, s)
-// 	}
-// }
-
-// func (g *GameState) playersWaitingForCards() int {
-// 	totalPlayers := 0
-// 	for _, player := range g.playersList {
-// 		if player.Status == GameStatusWaiting {
-// 			totalPlayers++
-// 		}
-// 	}
-
-// 	return totalPlayers
-// }
-
-// func (g *GameState) CheckNeedDealCards() {
-// 	playersWaiting := g.playersWaitingForCards()
-
-// 	if playersWaiting == len(g.players) &&
-// 		g.isDealer &&
-// 		g.gameStatus == GameStatusWaiting {
-// 		fmt.Printf("need to deal cards %s\n", g.listenAddr)
-
-// 		g.InitiateShuffleAndDeal()
-// 	}
-// }
-
-// func (g *GameState) GetPlayersWithStatus(s GameStatus) []string {
-// 	players := []string{}
-// 	for addr, player := range g.players {
-// 		if player.Status == s {
-// 			players = append(players, addr)
-// 		}
-// 	}
-
-// 	return players
-
-// }
-
-// func (g *GameState) ShuffleAndEncrypt(from string, deck [][]byte) error {
-// 	g.SetPlayerStatus(from, GameStatusShuffleAndDeal)
-
-// 	prevPlayer := g.playersList[g.getPrevPositionOnTable()]
-
-// 	if g.isDealer && from == prevPlayer.ListenAddr {
-// 		fmt.Println("********************************************")
-// 		fmt.Println("end shuffle round flip", from, g.listenAddr)
-// 		fmt.Println("********************************************")
-// 		return nil
-// 	}
-
-// 	dealToPlayer := g.playersList[g.getNextPositionOnTable()]
-// 	//encyrption and shuffle
-
-// 	g.SetStatus(GameStatusShuffleAndDeal)
-// 	g.SendToPlayer(dealToPlayer.ListenAddr, MessageEncDeck{Deck: [][]byte{}})
-
-// 	fmt.Printf("%s => %s\n", g.listenAddr, GameStatusShuffleAndDeal)
-// 	return nil
-// }
-
-// // InitiateShuffleAndDeal is only used for the "real" dealer. The actual "button player"
-// func (g *GameState) InitiateShuffleAndDeal() {
-// 	dealToPlayer := g.playersList[g.getNextPositionOnTable()]
-
-// 	g.SetStatus(GameStatusShuffleAndDeal)
-// 	g.SendToPlayer(dealToPlayer.ListenAddr, MessageEncDeck{Deck: [][]byte{}})
-// }
-
-// func (g *GameState) SendToPlayer(addr string, payload any) {
-// 	g.broadcastch <- BroadcastTo{
-// 		To:      []string{addr},
-// 		Payload: payload,
-// 	}
-
-// 	fmt.Printf("sending payload: %v to player: %s\n", payload, addr)
-// }
-
-// func (g *GameState) SendToPlayersWithStatus(payload any, s GameStatus) {
-// 	players := g.GetPlayersWithStatus(s)
-
-// 	g.broadcastch <- BroadcastTo{
-// 		To:      players,
-// 		Payload: payload,
-// 	}
-
-// 	fmt.Printf("sendign to players payload: %v, players: %v", payload, players)
-// }
-
-// func (g *GameState) SetPlayerStatus(addr string, status GameStatus) {
-// 	player, ok := g.players[addr]
-// 	if !ok {
-// 		panic("player could not be found")
-// 	}
-
-// 	player.Status = status
-
-// 	g.CheckNeedDealCards()
-// }
-
-// func (g *GameState) AddPlayer(addr string, status GameStatus) {
-// 	g.playersLock.Lock()
-// 	defer g.playersLock.Unlock()
-
-// 	// if status == GameStatusWaiting {
-// 	// 	g.AddPlayerWaiting()
-// 	// }
-
-// 	player := &Player{
-// 		ListenAddr: addr,
-// 	}
-// 	g.players[addr] = player
-// 	g.playersList = append(g.playersList, player)
-// 	sort.Sort(g.playersList)
-
-// 	// Seth the player status also when we add the player
-// 	g.SetPlayerStatus(addr, status)
-
-// 	fmt.Printf("new player joined: addr - %s, status - %s\n", addr, status)
-// }
-
-// func (g *GameState) loop() {
-// 	ticker := time.NewTicker(time.Second * 5)
-// 	for {
-// 		<-ticker.C
-// 		fmt.Printf("players connected: we: %s, status: %s\n", g.listenAddr, g.gameStatus)
-// 		fmt.Printf("%s\n", g.playersList)
-// 	}
+// 	return g.getNextReadyPlayer(nextPos + 1)
 // }
 
 type PlayersList []string

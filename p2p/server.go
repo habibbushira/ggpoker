@@ -295,14 +295,28 @@ func (s *Server) handleMessage(msg *Message) error {
 		return s.handlePeerList(v)
 	case MessageEncDeck:
 		return s.handleEncDeck(msg.From, v)
+	case MessageReady:
+		return s.handleMsgReady(msg.From)
+	case MessagePreFlop:
+		return s.handleMsgPreFlop(msg.From)
 	}
 	return nil
 }
 
-func (s *Server) handleEncDeck(from string, msg MessageEncDeck) error {
-	// s.gameState.ShuffleAndEncrypt(from, msg.Deck)
-	fmt.Printf("we %s, recieved enc deck from: %s, we: %s\n", s.ListenAddr, from, s.ListenAddr)
+func (s *Server) handleMsgReady(from string) error {
+	s.gameState.SetPlayerReady(from)
 	return nil
+}
+
+func (s *Server) handleMsgPreFlop(from string) error {
+	s.gameState.setStatus(GameStatusPreFlop)
+	return nil
+}
+
+func (s *Server) handleEncDeck(from string, msg MessageEncDeck) error {
+
+	fmt.Printf("we %s, recieved enc deck from: %s, we: %s\n", s.ListenAddr, from, s.ListenAddr)
+	return s.gameState.ShuffleAndEncrypt(from, msg.Deck)
 }
 
 // TODO goroutine
@@ -322,4 +336,5 @@ func init() {
 	gob.Register(MessagePeerList{})
 	gob.Register(MessageEncDeck{})
 	gob.Register(MessageReady{})
+	gob.Register(MessagePreFlop{})
 }

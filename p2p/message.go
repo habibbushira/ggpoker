@@ -24,6 +24,12 @@ type Handshake struct {
 	ListenAddr  string
 }
 
+type MessagePreFlop struct{}
+
+func (msg MessagePreFlop) String() string {
+	return "MSG: PREFLOP"
+}
+
 type MessagePeerList struct {
 	Peers []string
 }

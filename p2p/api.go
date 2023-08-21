@@ -37,7 +37,7 @@ func NewAPIServer(listenAddr string, game *Game) *APIServer {
 func (s *APIServer) Run() {
 	r := mux.NewRouter()
 
-	r.HandleFunc("/ready/", makeHttpHandleFunc(s.handlePlayerReady))
+	r.HandleFunc("/ready", makeHttpHandleFunc(s.handlePlayerReady))
 	http.ListenAndServe(s.listenAddr, r)
 }
 

@@ -17,6 +17,24 @@ const (
 	PlayerActionBet
 )
 
+type PlayerActionsRecv struct {
+	mu          sync.RWMutex
+	recvActions map[string]MessagePlayerAction
+}
+
+func NewPlayerActionRecv() *PlayerActionsRecv {
+	return &PlayerActionsRecv{
+		recvActions: make(map[string]MessagePlayerAction),
+	}
+}
+
+func (pa *PlayerActionsRecv) addAction(from string, action MessagePlayerAction) {
+	pa.mu.Lock()
+	defer pa.mu.Unlock()
+
+	pa.recvActions[from] = action
+}
+
 type PlayersReady struct {
 	mu         sync.RWMutex
 	recvStatus map[string]bool
@@ -70,15 +88,18 @@ type Game struct {
 	currentDealer int32
 	// currentPlayerTurn should be atomically accessable
 	currentPlayerTurn int32
+
+	recvPlayerActions *PlayerActionsRecv
 }
 
 func NewGame(addr string, bc chan BroadcastTo) *Game {
 	g := &Game{
-		listenAddr:    addr,
-		broadcastTo:   bc,
-		playersReady:  NewPlayersReady(),
-		currentStatus: GameStatusConnected,
-		currentDealer: -1,
+		listenAddr:        addr,
+		broadcastTo:       bc,
+		playersReady:      NewPlayersReady(),
+		currentStatus:     GameStatusConnected,
+		currentDealer:     0,
+		recvPlayerActions: NewPlayerActionRecv(),
 	}
 
 	g.playersList = append(g.playersList, addr)
@@ -88,8 +109,26 @@ func NewGame(addr string, bc chan BroadcastTo) *Game {
 	return g
 }
 
+func (g *Game) canTakeAction(from string) bool {
+	currentPlayerAddr := g.playersList[g.currentPlayerTurn]
+	return currentPlayerAddr == from
+}
+
+func (g *Game) handlePlayerAction(from string, action MessagePlayerAction) error {
+	if !g.canTakeAction(from) {
+		return fmt.Errorf("player (%s) taking action before hist turn", from)
+	}
+
+	g.recvPlayerActions.addAction(from, action)
+	g.setCurrentPlayerTurn(g.currentPlayerTurn + 1)
+
+	fmt.Printf("recieved player action: we %s, from %s, action %v\n", g.listenAddr, from, action)
+	return nil
+}
+
 func (g *Game) Fold() {
 	g.setStatus(GameStatusFolded)
+	g.setCurrentPlayerTurn(g.currentPlayerTurn + 1)
 
 	g.sendToPlayers(MessagePlayerAction{
 		Action:            PlayerActionFold,
@@ -160,12 +199,13 @@ func (g *Game) SetReady() {
 }
 
 func (g *Game) getCurrentDealerAddr() (string, bool) {
-	currentDealer := g.playersList[0]
-	if g.currentDealer > -1 {
-		currentDealer = g.playersList[g.currentDealer]
-	}
+	currentDealer := g.playersList[g.currentDealer]
 
 	return currentDealer, g.listenAddr == currentDealer
+}
+
+func (g *Game) setCurrentPlayerTurn(index int32) {
+	atomic.StoreInt32(&g.currentPlayerTurn, index)
 }
 
 func (g *Game) SetStatus(s GameStatus) {
@@ -173,6 +213,10 @@ func (g *Game) SetStatus(s GameStatus) {
 }
 
 func (g *Game) setStatus(s GameStatus) {
+	if s == GameStatusPreFlop {
+		g.setCurrentPlayerTurn(g.currentDealer + 1)
+	}
+
 	if g.currentStatus != s {
 		atomic.StoreInt32((*int32)(&g.currentStatus), (int32)(s))
 	}
@@ -198,7 +242,7 @@ func (g *Game) loop() {
 		<-ticker.C
 
 		currentDealer, _ := g.getCurrentDealerAddr()
-		fmt.Printf("players connected: we: %s, status: %s, dealer %s\n", g.listenAddr, g.currentStatus, currentDealer)
+		fmt.Printf("players connected: we: %s, status: %s, dealer %s, nextPlayerTurn %d\n", g.listenAddr, g.currentStatus, currentDealer, g.currentPlayerTurn)
 		fmt.Printf("playersList: %s\n", g.playersList)
 	}
 }

@@ -316,8 +316,7 @@ func (s *Server) handleMsgPreFlop(from string) error {
 }
 
 func (s *Server) handleGetMsgPlayerAction(from string, msg MessagePlayerAction) error {
-	fmt.Printf("recieved player action: we %s, from %s, action %v\n", from, from, msg)
-	return nil
+	return s.gameState.handlePlayerAction(from, msg)
 }
 
 func (s *Server) handleEncDeck(from string, msg MessageEncDeck) error {

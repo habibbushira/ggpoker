@@ -9,13 +9,32 @@ import (
 	"time"
 )
 
-type PlayerAction byte
+type AtomicInt struct {
+	value int32
+}
 
-const (
-	PlayerActionFold PlayerAction = iota + 1
-	PlayerActionCheck
-	PlayerActionBet
-)
+func NewAtomicInt(value int32) *AtomicInt {
+	return &AtomicInt{
+		value: value,
+	}
+}
+
+func (a *AtomicInt) String() string {
+	return fmt.Sprintf("%d", a.value)
+}
+
+func (a *AtomicInt) Set(value int32) {
+	atomic.StoreInt32(&a.value, value)
+}
+
+func (a *AtomicInt) Get() int32 {
+	return atomic.LoadInt32(&a.value)
+}
+
+func (a *AtomicInt) Inc() {
+	currentValue := a.Get()
+	a.Set(currentValue + 1)
+}
 
 type PlayerActionsRecv struct {
 	mu          sync.RWMutex
@@ -53,14 +72,6 @@ func (pr *PlayersReady) addRecvStatus(from string) {
 	pr.recvStatus[from] = true
 }
 
-// func (pr *PlayersReady) haveRecv(from string) bool {
-// 	pr.mu.Lock()
-// 	defer pr.mu.Unlock()
-
-// 	_, ok := pr.recvStatus[from]
-// 	return ok
-// }
-
 func (pr *PlayersReady) len() int {
 	pr.mu.RLock()
 	defer pr.mu.RUnlock()
@@ -83,23 +94,27 @@ type Game struct {
 	playersList  PlayersList
 
 	// currentStatus and currentDealer shoud be automatically accessable
-	currentStatus GameStatus
+	currentStatus *AtomicInt
 	// NOTE: this will be -1 when the game is in a bootstrapped state
-	currentDealer int32
+	currentDealer *AtomicInt
 	// currentPlayerTurn should be atomically accessable
-	currentPlayerTurn int32
+	currentPlayerTurn *AtomicInt
+
+	currentPlayerAction *AtomicInt
 
 	recvPlayerActions *PlayerActionsRecv
 }
 
 func NewGame(addr string, bc chan BroadcastTo) *Game {
 	g := &Game{
-		listenAddr:        addr,
-		broadcastTo:       bc,
-		playersReady:      NewPlayersReady(),
-		currentStatus:     GameStatusConnected,
-		currentDealer:     0,
-		recvPlayerActions: NewPlayerActionRecv(),
+		listenAddr:          addr,
+		broadcastTo:         bc,
+		playersReady:        NewPlayersReady(),
+		currentStatus:       NewAtomicInt(int32(GameStatusConnected)),
+		currentDealer:       NewAtomicInt(0),
+		recvPlayerActions:   NewPlayerActionRecv(),
+		currentPlayerTurn:   NewAtomicInt(0),
+		currentPlayerAction: NewAtomicInt(0),
 	}
 
 	g.playersList = append(g.playersList, addr)
@@ -110,7 +125,7 @@ func NewGame(addr string, bc chan BroadcastTo) *Game {
 }
 
 func (g *Game) canTakeAction(from string) bool {
-	currentPlayerAddr := g.playersList[g.currentPlayerTurn]
+	currentPlayerAddr := g.playersList[g.currentPlayerTurn.Get()]
 	return currentPlayerAddr == from
 }
 
@@ -120,20 +135,29 @@ func (g *Game) handlePlayerAction(from string, action MessagePlayerAction) error
 	}
 
 	g.recvPlayerActions.addAction(from, action)
-	g.setCurrentPlayerTurn(g.currentPlayerTurn + 1)
+	g.currentPlayerTurn.Inc()
 
 	fmt.Printf("recieved player action: we %s, from %s, action %v\n", g.listenAddr, from, action)
 	return nil
 }
 
-func (g *Game) Fold() {
-	g.setStatus(GameStatusFolded)
-	g.setCurrentPlayerTurn(g.currentPlayerTurn + 1)
+func (g *Game) TakeAction(action PlayerAction, value int) (err error) {
+	if !g.canTakeAction(g.listenAddr) {
+		err = fmt.Errorf("Cannot take action before ur turn %s", g.listenAddr)
+		return
+	}
+
+	g.currentPlayerAction.Set(int32(action))
+
+	g.currentPlayerTurn.Inc()
 
 	g.sendToPlayers(MessagePlayerAction{
-		Action:            PlayerActionFold,
-		CurrentGameStatus: g.currentStatus,
+		Action:            action,
+		CurrentGameStatus: GameStatus(g.currentStatus.Get()),
+		Value:             value,
 	}, g.getOtherPlayers()...)
+
+	return
 }
 
 func (g *Game) ShuffleAndEncrypt(from string, deck [][]byte) error {
@@ -147,6 +171,7 @@ func (g *Game) ShuffleAndEncrypt(from string, deck [][]byte) error {
 	_, isDealer := g.getCurrentDealerAddr()
 
 	if isDealer && from == prevPlayer {
+		fmt.Print("Dearler ", isDealer, g.listenAddr, from, prevPlayer)
 		g.setStatus(GameStatusPreFlop)
 		g.sendToPlayers(MessagePreFlop{}, g.getOtherPlayers()...)
 		return nil
@@ -199,13 +224,9 @@ func (g *Game) SetReady() {
 }
 
 func (g *Game) getCurrentDealerAddr() (string, bool) {
-	currentDealer := g.playersList[g.currentDealer]
+	currentDealer := g.playersList[g.currentDealer.Get()]
 
 	return currentDealer, g.listenAddr == currentDealer
-}
-
-func (g *Game) setCurrentPlayerTurn(index int32) {
-	atomic.StoreInt32(&g.currentPlayerTurn, index)
 }
 
 func (g *Game) SetStatus(s GameStatus) {
@@ -214,11 +235,12 @@ func (g *Game) SetStatus(s GameStatus) {
 
 func (g *Game) setStatus(s GameStatus) {
 	if s == GameStatusPreFlop {
-		g.setCurrentPlayerTurn(g.currentDealer + 1)
+		g.currentPlayerTurn.Inc()
 	}
 
-	if g.currentStatus != s {
-		atomic.StoreInt32((*int32)(&g.currentStatus), (int32)(s))
+	if GameStatus(g.currentStatus.Get()) != s {
+		g.currentStatus.Set(int32(s))
+		// atomic.StoreInt32((*int32)(&g.currentStatus), (int32)(s))
 	}
 }
 
@@ -242,8 +264,8 @@ func (g *Game) loop() {
 		<-ticker.C
 
 		currentDealer, _ := g.getCurrentDealerAddr()
-		fmt.Printf("players connected: we: %s, status: %s, dealer %s, nextPlayerTurn %d\n", g.listenAddr, g.currentStatus, currentDealer, g.currentPlayerTurn)
-		fmt.Printf("playersList: %s\n", g.playersList)
+		fmt.Printf("players: we: %s, gameStatus: %s, dealer %s, nextPlayerTurn %s, playerStatus %s\n", g.listenAddr, GameStatus(g.currentStatus.Get()), currentDealer, g.currentPlayerTurn, PlayerAction(g.currentPlayerAction.Get()))
+		fmt.Printf("playersList: %s | playersAction %v\n", g.playersList, g.recvPlayerActions.recvActions)
 	}
 }
 

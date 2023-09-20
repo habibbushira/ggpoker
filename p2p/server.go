@@ -190,7 +190,7 @@ func (s *Server) loop() {
 		select {
 		case peer := <-s.addPeer:
 			if err := s.handleNewPeer(peer); err != nil {
-				fmt.Printf("handle peer error: %s", err)
+				// fmt.Printf("handle peer error: %s", err)
 			}
 		case peer := <-s.delPeer:
 			peer.conn.Close()
@@ -204,7 +204,7 @@ func (s *Server) loop() {
 				}
 			}()
 		case msg := <-s.broadcastch:
-			fmt.Println("broadcasting to all peers")
+			// fmt.Println("broadcasting to all peers")
 			if err := s.Broadcast(msg); err != nil {
 				fmt.Println("broadcast error ", err)
 			}
@@ -263,7 +263,7 @@ func (s *Server) Broadcast(broadcastMsg BroadcastTo) error {
 				if err := peer.Send(buf.Bytes()); err != nil {
 					fmt.Println("broadcast to peer error: ", err)
 				}
-				fmt.Printf("sending msg to peer we: %s, peer: %s\n", s.ListenAddr, peer.listenAddr)
+				// fmt.Printf("sending msg to peer we: %s, peer: %s\n", s.ListenAddr, peer.listenAddr)
 			}(peer)
 		}
 	}
@@ -320,14 +320,13 @@ func (s *Server) handleGetMsgPlayerAction(from string, msg MessagePlayerAction) 
 }
 
 func (s *Server) handleEncDeck(from string, msg MessageEncDeck) error {
-
 	fmt.Printf("we %s, recieved enc deck from: %s, we: %s\n", s.ListenAddr, from, s.ListenAddr)
 	return s.gameState.ShuffleAndEncrypt(from, msg.Deck)
 }
 
 // TODO goroutine
 func (s *Server) handlePeerList(l MessagePeerList) error {
-	// fmt.Printf("recieved peerlist message we %s list %v \n", s.ListenAddr, l.Peers)
+	fmt.Printf("recieved peerlist message we %s list %v \n", s.ListenAddr, l.Peers)
 	for i := 0; i < len(l.Peers); i++ {
 		if err := s.Connect(l.Peers[i]); err != nil {
 			fmt.Println("failed to dial peer: ", err)

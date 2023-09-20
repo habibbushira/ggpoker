@@ -43,19 +43,22 @@ type PlayerAction byte
 
 func (pa PlayerAction) String() string {
 	switch pa {
+	case PlayerActionIdle:
+		return "IDLE"
 	case PlayerActionFold:
 		return "FOLD"
 	case PlayerActionCheck:
 		return "CHECK"
 	case PlayerActionBet:
-		return "BETCH"
+		return "BET"
 	default:
-		return "INVALID ACTION"
+		return "INVALID"
 	}
 }
 
 const (
-	PlayerActionFold PlayerAction = iota + 1
+	PlayerActionIdle PlayerAction = iota
+	PlayerActionFold
 	PlayerActionCheck
 	PlayerActionBet
 )

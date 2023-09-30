@@ -97,8 +97,9 @@ type Game struct {
 	listenAddr  string
 	broadcastTo chan BroadcastTo
 
-	playersReady *PlayersReady
-	playersList  *PlayersList
+	playersReady     *PlayersReady
+	playersList      *PlayersList
+	playersReadyList *PlayersList
 
 	// currentStatus and currentDealer shoud be automatically accessable
 	currentStatus *AtomicInt
@@ -110,6 +111,8 @@ type Game struct {
 	currentPlayerAction *AtomicInt
 
 	recvPlayerActions *PlayerActionsRecv
+
+	table *Table
 }
 
 func NewGame(addr string, bc chan BroadcastTo) *Game {
@@ -123,7 +126,10 @@ func NewGame(addr string, bc chan BroadcastTo) *Game {
 		currentPlayerTurn:   NewAtomicInt(0),
 		currentPlayerAction: NewAtomicInt(0),
 
-		playersList: NewPlayersList(),
+		playersList:      NewPlayersList(),
+		playersReadyList: NewPlayersList(),
+
+		table: NewTable(0),
 	}
 
 	g.playersList.add(addr)
@@ -238,8 +244,11 @@ func (g *Game) InitiateShuffleAndDeal() {
 	fmt.Printf("Dealing cards: we %s, to %s\n", g.listenAddr, dealToPlayer)
 }
 
+// This is called when we receive a ready message from
+// a player in the network
 func (g *Game) SetPlayerReady(from string) {
 	g.playersReady.addRecvStatus(from)
+	g.playersReadyList.add(from)
 	// fmt.Printf("setting player satus to ready we: %s, player: %s\n", g.listenAddr, from)
 
 	// Check if the round can be started
@@ -255,7 +264,9 @@ func (g *Game) SetPlayerReady(from string) {
 	}
 }
 
+// This is called when we set ourselfs as ready.
 func (g *Game) SetReady() {
+	g.playersReadyList.add(g.listenAddr)
 	g.playersReady.addRecvStatus(g.listenAddr)
 	g.sendToPlayers(MessageReady{}, g.getOtherPlayers()...)
 
@@ -304,14 +315,15 @@ func (g *Game) loop() {
 
 		currentDealer, _ := g.getCurrentDealerAddr()
 		fmt.Printf("players: we: %s, gameStatus: %s, dealer %s, nextPlayerTurn %s, playerStatus %s\n", g.listenAddr, GameStatus(g.currentStatus.Get()), currentDealer, g.currentPlayerTurn, PlayerAction(g.currentPlayerAction.Get()))
-		fmt.Printf("playersList: %s | playersAction %v\n", g.playersList.List(), g.recvPlayerActions.recvActions)
+		fmt.Printf("playersList: %s | playersReadyList %v\n", g.playersList.List(), g.playersReadyList.List())
+		fmt.Printf("table: %s\n", g.table)
 	}
 }
 
 func (g *Game) advanceToNextRound() {
 	// g.currentDealer.Set()
 	g.recvPlayerActions.clear()
-	g.currentPlayerAction.Set(int32(PlayerActionIdle))
+	g.currentPlayerAction.Set(int32(PlayerActionNone))
 	g.currentStatus.Set(int32(g.getNextGameStatus()))
 }
 

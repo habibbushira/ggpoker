@@ -43,11 +43,23 @@ func main() {
 		time.Sleep(time.Second * 1)
 		http.Get("http://localhost:4001/ready")
 
-		// time.Sleep(time.Second * 1)
-		// http.Get("http://localhost:5001/ready")
+		time.Sleep(time.Second * 1)
+		http.Get("http://localhost:5001/ready")
+
+		time.Sleep(time.Second * 1)
+		http.Get("http://localhost:6001/ready")
 
 		// time.Sleep(time.Second * 1)
-		// http.Get("http://localhost:6001/ready")
+		// http.Get("http://localhost:3001/fold")
+
+		// time.Sleep(time.Second * 3)
+		// http.Get("http://localhost:4001/fold")
+
+		// time.Sleep(time.Second * 1)
+		// http.Get("http://localhost:5001/fold")
+
+		// time.Sleep(time.Second * 1)
+		// http.Get("http://localhost:6001/fold")
 	}()
 
 	select {}

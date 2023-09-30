@@ -8,6 +8,8 @@ import (
 	"sync"
 )
 
+const defaultMaxPlayers = 6
+
 type GameVariant uint8
 
 func (gv GameVariant) String() string {
@@ -31,6 +33,7 @@ type ServerConfig struct {
 	Version       string
 	GameVariant   GameVariant
 	ApiListenAddr string
+	MaxPlayers    int
 }
 
 type Server struct {
@@ -49,6 +52,9 @@ type Server struct {
 }
 
 func NewServer(cfg ServerConfig) *Server {
+	if cfg.MaxPlayers == 0 {
+		cfg.MaxPlayers = defaultMaxPlayers
+	}
 	s := &Server{
 		ServerConfig: cfg,
 		peers:        make(map[string]*Peer),
@@ -83,7 +89,7 @@ func NewServer(cfg ServerConfig) *Server {
 func (s *Server) Start() {
 	go s.loop()
 
-	fmt.Printf("started new game: port %s variant %v\n", s.ListenAddr, s.GameVariant)
+	fmt.Printf("started new game: port %s variant %v maxPlayers %d\n", s.ListenAddr, s.GameVariant, s.MaxPlayers)
 
 	s.transport.ListenAndAccept()
 
@@ -272,6 +278,10 @@ func (s *Server) Broadcast(broadcastMsg BroadcastTo) error {
 }
 
 func (s *Server) handshake(p *Peer) (*Handshake, error) {
+	if len(s.peers) > s.MaxPlayers {
+		return nil, fmt.Errorf("max players exceeded (%d)", s.MaxPlayers)
+	}
+
 	hs := &Handshake{}
 	if err := gob.NewDecoder(p.conn).Decode(hs); err != nil {
 		return nil, err

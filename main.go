@@ -49,17 +49,57 @@ func main() {
 		time.Sleep(time.Second * 1)
 		http.Get("http://localhost:6001/ready")
 
-		// time.Sleep(time.Second * 1)
-		// http.Get("http://localhost:3001/fold")
+		//PREFLOP
+		time.Sleep(time.Second * 5)
+		http.Get("http://localhost:4001/fold")
 
-		// time.Sleep(time.Second * 3)
-		// http.Get("http://localhost:4001/fold")
+		time.Sleep(time.Second * 2)
+		http.Get("http://localhost:5001/fold")
 
-		// time.Sleep(time.Second * 1)
-		// http.Get("http://localhost:5001/fold")
+		time.Sleep(time.Second * 2)
+		http.Get("http://localhost:6001/fold")
 
-		// time.Sleep(time.Second * 1)
-		// http.Get("http://localhost:6001/fold")
+		time.Sleep(time.Second * 2)
+		http.Get("http://localhost:3001/fold")
+
+		//FOLD
+		time.Sleep(time.Second * 2)
+		http.Get("http://localhost:4001/fold")
+
+		time.Sleep(time.Second * 2)
+		http.Get("http://localhost:5001/fold")
+
+		time.Sleep(time.Second * 2)
+		http.Get("http://localhost:6001/fold")
+
+		time.Sleep(time.Second * 2)
+		http.Get("http://localhost:3001/fold")
+
+		//TURN
+		time.Sleep(time.Second * 2)
+		http.Get("http://localhost:4001/fold")
+
+		time.Sleep(time.Second * 2)
+		http.Get("http://localhost:5001/fold")
+
+		time.Sleep(time.Second * 2)
+		http.Get("http://localhost:6001/fold")
+
+		time.Sleep(time.Second * 2)
+		http.Get("http://localhost:3001/fold")
+
+		//RIVER
+		time.Sleep(time.Second * 2)
+		http.Get("http://localhost:4001/fold")
+
+		time.Sleep(time.Second * 2)
+		http.Get("http://localhost:5001/fold")
+
+		time.Sleep(time.Second * 2)
+		http.Get("http://localhost:6001/fold")
+
+		time.Sleep(time.Second * 2)
+		http.Get("http://localhost:3001/fold")
 	}()
 
 	select {}

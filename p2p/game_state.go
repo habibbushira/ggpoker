@@ -97,9 +97,8 @@ type Game struct {
 	listenAddr  string
 	broadcastTo chan BroadcastTo
 
-	playersReady     *PlayersReady
-	playersList      *PlayersList
-	playersReadyList *PlayersList
+	playersReady *PlayersReady
+	playersList  *PlayersList
 
 	// currentStatus and currentDealer shoud be automatically accessable
 	currentStatus *AtomicInt
@@ -126,10 +125,8 @@ func NewGame(addr string, bc chan BroadcastTo) *Game {
 		currentPlayerTurn:   NewAtomicInt(0),
 		currentPlayerAction: NewAtomicInt(0),
 
-		playersList:      NewPlayersList(),
-		playersReadyList: NewPlayersList(),
-
-		table: NewTable(0),
+		playersList: NewPlayersList(),
+		table:       NewTable(6),
 	}
 
 	g.playersList.add(addr)
@@ -208,65 +205,94 @@ func (g *Game) TakeAction(action PlayerAction, value int) (err error) {
 
 func (g *Game) ShuffleAndEncrypt(from string, deck [][]byte) error {
 
-	prevPlayer := g.playersList.get(int(g.getPrevPositionOnTable()))
+	// prevPlayer := g.playersList.get(int(g.getPrevPositionOnTable()))
+	prevPlayer, err := g.table.GetPlayerBefore(g.listenAddr)
+	if err != nil {
+		panic(err)
+	}
 
-	if from != prevPlayer {
-		return fmt.Errorf("recieved encrypted deck from the wrong player (%s) should be (%s)", from, prevPlayer)
+	if from != prevPlayer.addr {
+		return fmt.Errorf("recieved encrypted deck from the wrong player (%s) should be (%s)", from, prevPlayer.addr)
 	}
 
 	_, isDealer := g.getCurrentDealerAddr()
 
-	if isDealer && from == prevPlayer {
+	if isDealer && from == prevPlayer.addr {
 		g.setStatus(GameStatusPreFlop)
+		g.table.SetPlayerStatus(g.listenAddr, GameStatusPreFlop)
 		g.sendToPlayers(MessagePreFlop{}, g.getOtherPlayers()...)
 		return nil
 	}
 
-	dealToPlayer := g.playersList.get(int(g.getNextPositionOnTable()))
-	// dealToPlayer := g.getNextReadyPlayer(g.getNextPositionOnTable())
+	// dealToPlayer := g.playersList.get(int(g.getNextPositionOnTable()))
+	dealToPlayer, err := g.table.GetPlayerAfter(g.listenAddr)
+	if err != nil {
+		panic(err)
+	}
 	//encyrption and shuffle
 
 	g.setStatus(GameStatusDealing)
-	g.sendToPlayers(MessageEncDeck{Deck: [][]byte{}}, dealToPlayer)
+	g.sendToPlayers(MessageEncDeck{Deck: [][]byte{}}, dealToPlayer.addr)
 
-	fmt.Printf("received cards and going to shuffle: we %s, from %s, dealing %s\n", g.listenAddr, from, dealToPlayer)
+	fmt.Printf("received cards and going to shuffle: we %s, from %s, dealing %s\n", g.listenAddr, from, dealToPlayer.addr)
 	return nil
 }
 
 // InitiateShuffleAndDeal is only used for the "real" dealer. The actual "button player"
 func (g *Game) InitiateShuffleAndDeal() {
-	dealToPlayer := g.playersList.get(int(g.getNextPositionOnTable()))
+	fmt.Println("********************************")
+	fmt.Println(g.listenAddr)
+	fmt.Println("********************************")
+	// dealToPlayer := g.playersList.get(int(g.getNextPositionOnTable()))
+	dealToPlayer, err := g.table.GetPlayerAfter(g.listenAddr)
+	if err != nil {
+		panic(err)
+	}
 
 	g.setStatus(GameStatusDealing)
 
-	g.sendToPlayers(MessageEncDeck{Deck: [][]byte{}}, dealToPlayer)
+	g.sendToPlayers(MessageEncDeck{Deck: [][]byte{}}, dealToPlayer.addr)
 
-	fmt.Printf("Dealing cards: we %s, to %s\n", g.listenAddr, dealToPlayer)
+	fmt.Printf("Dealing cards: we %s, to %s\n", g.listenAddr, dealToPlayer.addr)
+}
+
+func (g *Game) mayBeDeal() {
+	if GameStatus(g.currentStatus.Get()) == GameStatusReady {
+		g.InitiateShuffleAndDeal()
+	}
 }
 
 // This is called when we receive a ready message from
 // a player in the network
-func (g *Game) SetPlayerReady(from string) {
-	g.playersReady.addRecvStatus(from)
-	g.playersReadyList.add(from)
+func (g *Game) SetPlayerReady(addr string) {
+	tablePos := g.playersList.getIndex(addr)
+	g.table.AddPlayerOnPosition(addr, tablePos)
+
+	//TODO: check if we really need this
+	g.playersReady.addRecvStatus(addr)
 	// fmt.Printf("setting player satus to ready we: %s, player: %s\n", g.listenAddr, from)
 
 	// Check if the round can be started
-	if g.playersReady.len() < 2 {
+	if g.table.LenPlayers() < 2 {
 		return
 	}
 
 	// In this case we have engough players, hence, the round can be started
 	// g.playersReady.clear()
 
-	if _, ok := g.getCurrentDealerAddr(); ok {
-		g.InitiateShuffleAndDeal()
+	if _, areWeDealer := g.getCurrentDealerAddr(); areWeDealer {
+		go func() {
+			time.Sleep(time.Second * 5)
+			g.mayBeDeal()
+		}()
 	}
 }
 
 // This is called when we set ourselfs as ready.
 func (g *Game) SetReady() {
-	g.playersReadyList.add(g.listenAddr)
+	tablePos := g.playersList.getIndex(g.listenAddr)
+	g.table.AddPlayerOnPosition(g.listenAddr, tablePos)
+
 	g.playersReady.addRecvStatus(g.listenAddr)
 	g.sendToPlayers(MessageReady{}, g.getOtherPlayers()...)
 
@@ -281,6 +307,7 @@ func (g *Game) getCurrentDealerAddr() (string, bool) {
 
 func (g *Game) SetStatus(s GameStatus) {
 	g.setStatus(s)
+	g.table.SetPlayerStatus(g.listenAddr, s)
 }
 
 func (g *Game) setStatus(s GameStatus) {
@@ -290,7 +317,6 @@ func (g *Game) setStatus(s GameStatus) {
 
 	if GameStatus(g.currentStatus.Get()) != s {
 		g.currentStatus.Set(int32(s))
-		// atomic.StoreInt32((*int32)(&g.currentStatus), (int32)(s))
 	}
 }
 
@@ -314,9 +340,9 @@ func (g *Game) loop() {
 		<-ticker.C
 
 		currentDealer, _ := g.getCurrentDealerAddr()
-		fmt.Printf("players: we: %s, gameStatus: %s, dealer %s, nextPlayerTurn %s, playerStatus %s\n", g.listenAddr, GameStatus(g.currentStatus.Get()), currentDealer, g.currentPlayerTurn, PlayerAction(g.currentPlayerAction.Get()))
-		fmt.Printf("playersList: %s | playersReadyList %v\n", g.playersList.List(), g.playersReadyList.List())
-		fmt.Printf("table: %s\n", g.table)
+		fmt.Printf("players: we: %s, gameState %s, dealer %s, nextPlayerTurn %s\n", g.listenAddr, GameStatus(g.currentStatus.Get()), currentDealer, g.currentPlayerTurn)
+		fmt.Printf("playersList: %s \n", g.playersList.List())
+		// fmt.Printf("table: %s\n", g.table)
 	}
 }
 
@@ -346,36 +372,46 @@ func (g *Game) getPositionOnTable() int {
 	return -1
 }
 
-func (g *Game) getPrevPositionOnTable() int {
-	ourPosition := g.getPositionOnTable()
+// func (g *Game) getPrevPositionOnTable() int {
+// 	ourPosition := g.getPositionOnTable()
 
-	// if we are in the first position of the table
-	// we should return the last index of the player lists
-	if ourPosition == 0 {
-		return g.playersList.Len() - 1
-	}
+// 	// if we are in the first position of the table
+// 	// we should return the last index of the player lists
+// 	if ourPosition == 0 {
+// 		return g.playersList.Len() - 1
+// 	}
 
-	return ourPosition - 1
-}
+// 	return ourPosition - 1
+// }
 
 func (g *Game) getNextDealer() int {
 	panic("TODO: getNextDealer not implemented")
 }
 
 // getNextPosition return the index of the next player in teh PlayersList.
-func (g *Game) getNextPositionOnTable() int {
-	ourPosition := g.getPositionOnTable()
-	if ourPosition == -1 {
-		panic("getNextPositionOnTable errror")
-	}
+// func (g *Game) getNextPositionOnTable() int {
+// 	ourPosition := g.getPositionOnTable()
+// 	if ourPosition == -1 {
+// 		panic("getNextPositionOnTable errror")
+// 	}
 
-	if ourPosition == g.playersList.Len()-1 {
-		return 0
-	}
+// 	if ourPosition == g.playersList.Len()-1 {
+// 		return 0
+// 	}
 
-	return ourPosition + 1
+// 	return ourPosition + 1
 
-}
+// }
+
+// func (g *Game) getOtherPlayers() []string {
+// 	players := g.table.Players()
+// 	addrs := make([]string, len(players))
+
+// 	for index, player := range players {
+// 		addrs[index] = player.addr
+// 	}
+// 	return addrs
+// }
 
 func (g *Game) getOtherPlayers() []string {
 	players := []string{}
@@ -405,6 +441,18 @@ func (p *PlayersList) List() []string {
 	p.lock.RUnlock()
 
 	return p.list
+}
+
+func (p *PlayersList) getIndex(addr string) int {
+	p.lock.Lock()
+	defer p.lock.Unlock()
+
+	for i := 0; i < len(p.list); i++ {
+		if addr == p.list[i] {
+			return i
+		}
+	}
+	return -1
 }
 
 func (p *PlayersList) add(addr string) {

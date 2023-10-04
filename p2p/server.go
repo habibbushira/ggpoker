@@ -211,9 +211,11 @@ func (s *Server) loop() {
 			}()
 		case msg := <-s.broadcastch:
 			// fmt.Println("broadcasting to all peers")
-			if err := s.Broadcast(msg); err != nil {
-				fmt.Println("broadcast error ", err)
-			}
+			go func() {
+				if err := s.Broadcast(msg); err != nil {
+					fmt.Println("broadcast error ", err)
+				}
+			}()
 		}
 	}
 }
@@ -321,7 +323,7 @@ func (s *Server) handleMsgReady(from string) error {
 }
 
 func (s *Server) handleMsgPreFlop(from string) error {
-	s.gameState.setStatus(GameStatusPreFlop)
+	s.gameState.SetStatus(GameStatusPreFlop)
 	return nil
 }
 

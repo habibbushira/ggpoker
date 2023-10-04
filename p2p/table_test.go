@@ -30,19 +30,19 @@ func TestTableGetPlayerNextTo(t *testing.T) {
 
 	assert.Nil(t, table.AddPlayer("1"))
 	assert.Nil(t, table.AddPlayer("2"))
-	nextPlayer, err := table.GetPlayersNextTo("1")
+	nextPlayer, err := table.GetPlayerAfter("1")
 	assert.Nil(t, err)
 	assert.Equal(t, nextPlayer.addr, "2")
 
 	assert.Nil(t, table.AddPlayer("3"))
 	assert.Nil(t, table.RemovePlayerByAddr("2"))
-	nextPlayer, err = table.GetPlayersNextTo("1")
+	nextPlayer, err = table.GetPlayerAfter("1")
 
 	assert.Nil(t, err)
 	assert.Equal(t, nextPlayer.addr, "3")
 
 	assert.Nil(t, table.RemovePlayerByAddr("3"))
-	nextPlayer, err = table.GetPlayersNextTo("1")
+	nextPlayer, err = table.GetPlayerAfter("1")
 	assert.NotNil(t, err)
 	assert.Nil(t, nextPlayer)
 }

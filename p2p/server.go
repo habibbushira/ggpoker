@@ -48,7 +48,7 @@ type Server struct {
 	msgCh       chan *Message
 	broadcastch chan BroadcastTo
 	// gameState   *GameState
-	gameState *Game
+	gameState *GameState
 }
 
 func NewServer(cfg ServerConfig) *Server {
@@ -221,7 +221,7 @@ func (s *Server) loop() {
 }
 
 func (s *Server) handleNewPeer(peer *Peer) error {
-	hs, err := s.handshake(peer)
+	_, err := s.handshake(peer)
 	if err != nil {
 		peer.conn.Close()
 		delete(s.peers, peer.conn.RemoteAddr().String())
@@ -245,7 +245,7 @@ func (s *Server) handleNewPeer(peer *Peer) error {
 		}()
 	}
 
-	fmt.Printf("handshake successful: new player connected gamestatus: %s, listenAddr: %s we: %s\n", hs.GameStatus, peer.listenAddr, s.ListenAddr)
+	fmt.Printf("handshake successful: new player connected peer: %s, listenAddr: %s, we: %s\n", peer.conn.RemoteAddr(), peer.listenAddr, s.ListenAddr)
 
 	// s.peers[peer.conn.RemoteAddr()] = peer
 

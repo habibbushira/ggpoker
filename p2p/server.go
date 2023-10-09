@@ -65,7 +65,7 @@ func NewServer(cfg ServerConfig) *Server {
 	}
 
 	// s.gameState = NewGameState(s.ListenAddr, s.broadcastch)
-	s.gameState = NewGame(s.ListenAddr, s.broadcastch)
+	s.gameState = NewGameState(s.ListenAddr, s.broadcastch)
 
 	// if s.ListenAddr == ":3000" {
 	// 	s.gameState.isDealer = true
@@ -318,7 +318,7 @@ func (s *Server) handleMessage(msg *Message) error {
 }
 
 func (s *Server) handleMsgReady(from string) error {
-	s.gameState.SetPlayerReady(from)
+	// s.gameState.SetPlayerReady(from)
 	return nil
 }
 

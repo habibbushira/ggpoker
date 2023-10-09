@@ -38,15 +38,15 @@ func NewAPIServer(listenAddr string, game *GameState) *APIServer {
 func (s *APIServer) Run() {
 	r := mux.NewRouter()
 
-	r.HandleFunc("/ready", makeHttpHandleFunc(s.handlePlayerReady))
+	r.HandleFunc("/takeseat", makeHttpHandleFunc(s.handleTakeSeat))
 	r.HandleFunc("/fold", makeHttpHandleFunc(s.handlePlayerFold))
 	r.HandleFunc("/check", makeHttpHandleFunc(s.handlePlayerCheck))
 	r.HandleFunc("/bet/{value}", makeHttpHandleFunc(s.handlePlayerBet))
 	http.ListenAndServe(s.listenAddr, r)
 }
 
-func (s *APIServer) handlePlayerReady(w http.ResponseWriter, r *http.Request) error {
-	s.game.SetReady()
+func (s *APIServer) handleTakeSeat(w http.ResponseWriter, r *http.Request) error {
+	s.game.TakeSeatAtTable()
 	return JSON(w, http.StatusOK, []byte("READY"))
 }
 

@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"sort"
 	"time"
+
+	"github.com/habibbushira/ggpoker/proto"
 )
 
 type GameState struct {
@@ -24,7 +26,7 @@ type GameState struct {
 	table *Table
 }
 
-func NewGame(addr string, bc chan BroadcastTo) *GameState {
+func NewGameState(addr string, bc chan BroadcastTo) *GameState {
 	g := &GameState{
 		listenAddr:          addr,
 		broadcastTo:         bc,
@@ -149,6 +151,7 @@ func (g *GameState) InitiateShuffleAndDeal() {
 }
 
 func (g *GameState) mayBeDeal() {
+	return
 	if GameStatus(g.currentStatus.Get()) == GameStatusReady {
 		g.InitiateShuffleAndDeal()
 	}
@@ -156,7 +159,7 @@ func (g *GameState) mayBeDeal() {
 
 // This is called when we receive a ready message from
 // a player in the network
-func (g *GameState) SetPlayerReady(addr string) {
+func (g *GameState) SetPlayerAtTable(addr string) {
 	tablePos := g.playersList.getIndex(addr)
 	g.table.AddPlayerOnPosition(addr, tablePos)
 
@@ -181,11 +184,13 @@ func (g *GameState) SetPlayerReady(addr string) {
 }
 
 // This is called when we set ourselfs as ready.
-func (g *GameState) SetReady() {
+func (g *GameState) TakeSeatAtTable() {
 	tablePos := g.playersList.getIndex(g.listenAddr)
 	g.table.AddPlayerOnPosition(g.listenAddr, tablePos)
 
-	g.sendToPlayers(MessageReady{}, g.getOtherPlayers()...)
+	g.sendToPlayers(&proto.TakeSeat{
+		Addr: g.listenAddr,
+	}, g.getOtherPlayers()...)
 
 	g.setStatus(GameStatusReady)
 }
@@ -233,6 +238,7 @@ func (g *GameState) loop() {
 		currentDealer, _ := g.getCurrentDealerAddr()
 		fmt.Printf("players: we: %s, gameState %s, dealer %s, nextPlayerTurn %s\n", g.listenAddr, GameStatus(g.currentStatus.Get()), currentDealer, g.currentPlayerTurn)
 		fmt.Printf("playersList: %s \n", g.playersList.List())
+		fmt.Printf("we: %s, table: %s \n", g.listenAddr, g.table)
 		// fmt.Printf("table: %s\n", g.table)
 	}
 }
@@ -257,7 +263,7 @@ func (g *GameState) advanceToNextRound() {
 	g.currentPlayerAction.Set(int32(PlayerActionNone))
 
 	if GameStatus(g.currentStatus.Get()) == GameStatusRiver {
-		g.SetReady()
+		g.TakeSeatAtTable()
 	} else {
 		g.currentStatus.Set(int32(g.getNextGameStatus()))
 	}

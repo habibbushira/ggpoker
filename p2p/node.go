@@ -13,16 +13,23 @@ import (
 type Node struct {
 	ServerConfig
 
+	gameState *GameState
+
 	peerLock sync.RWMutex
-	peers    map[proto.GossipClient]*proto.Version
+	peers    map[string]proto.GossipClient
+
+	broadcastch chan BroadcastTo
 
 	proto.UnimplementedGossipServer
 }
 
 func NewNode(cfg ServerConfig) *Node {
+	broadcastch := make(chan BroadcastTo, 1024)
 	return &Node{
 		ServerConfig: cfg,
-		peers:        make(map[proto.GossipClient]*proto.Version),
+		peers:        make(map[string]proto.GossipClient),
+		broadcastch:  broadcastch,
+		gameState:    NewGameState(cfg.ListenAddr, broadcastch),
 	}
 }
 
@@ -40,11 +47,52 @@ func (n *Node) Handshake(ctx context.Context, version *proto.Version) (*proto.Ve
 func (n *Node) addPeer(c proto.GossipClient, v *proto.Version) {
 	n.peerLock.Lock()
 	defer n.peerLock.Unlock()
-	n.peers[c] = v
+	n.peers[v.ListenAddr] = c
+	n.gameState.AddPlayer(v.ListenAddr)
 
-	fmt.Println(v.PeerList)
+	go func() {
+		for _, addr := range v.PeerList {
+			if err := n.Connect(addr); err != nil {
+				fmt.Println("failed to connect: ", err)
+				continue
+			}
+		}
+	}()
+}
 
-	fmt.Printf("new player connected: we=%s, remote=%s\n", n.ListenAddr, v.ListenAddr)
+func (n *Node) HandleTakeSeat(ctx context.Context, v *proto.TakeSeat) (*proto.Ack, error) {
+	n.gameState.SetPlayerAtTable(v.Addr)
+	return &proto.Ack{}, nil
+}
+
+func (n *Node) broadcast(bct BroadcastTo) {
+	for _, addr := range bct.To {
+		go func(addr string) {
+			client, ok := n.peers[addr]
+			if !ok {
+				return
+			}
+			switch v := bct.Payload.(type) {
+			case *proto.TakeSeat:
+				_, err := client.HandleTakeSeat(context.TODO(), v)
+				if err != nil {
+					fmt.Printf("takeSeat broadcast error: %s\n", err)
+				}
+			case *proto.EncDeck:
+				_, err := client.HandleEncDeck(context.TODO(), v)
+				if err != nil {
+					fmt.Printf("encDeck broadcast error: %s\n", err)
+				}
+			}
+		}(addr)
+
+	}
+}
+
+func (n *Node) loop() {
+	for bt := range n.broadcastch {
+		n.broadcast(bt)
+	}
 }
 
 func (n *Node) getVersion() *proto.Version {
@@ -64,14 +112,33 @@ func (n *Node) getPeerList() []string {
 		i    = 0
 	)
 
-	for _, v := range n.peers {
-		list[i] = v.ListenAddr
+	for addr := range n.peers {
+		list[i] = addr
+		i++
 	}
 
 	return list
 }
 
+func (n *Node) canConnectWith(addr string) bool {
+	if addr == n.ListenAddr {
+		return false
+	}
+
+	for peerAddr := range n.peers {
+		if peerAddr == addr {
+			return false
+		}
+	}
+
+	return true
+}
+
 func (n *Node) Connect(addr string) error {
+	if !n.canConnectWith(addr) {
+		return nil
+	}
+
 	client, err := makeGrpcClientConn(addr)
 	if err != nil {
 		return err
@@ -91,12 +158,20 @@ func (n *Node) Start() error {
 	grpcServer := grpc.NewServer()
 	proto.RegisterGossipServer(grpcServer, n)
 
+	go n.loop()
+
 	ln, err := net.Listen("tcp", n.ListenAddr)
 	if err != nil {
 		return err
 	}
 
 	fmt.Printf("started new poker game server: port=%s, variant=%s, maxPlayers=%d\n", n.ListenAddr, n.GameVariant, n.MaxPlayers)
+
+	go func(n *Node) {
+		apiServer := NewAPIServer(n.ApiListenAddr, n.gameState)
+		fmt.Printf("starting api server port %s\n", n.ApiListenAddr)
+		apiServer.Run()
+	}(n)
 
 	return grpcServer.Serve(ln)
 }
